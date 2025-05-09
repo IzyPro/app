@@ -5,6 +5,7 @@ using BTCPayApp.Core.Contracts;
 using BTCPayApp.Core.Data;
 using BTCPayApp.Core.Helpers;
 using BTCPayApp.Core.LDK;
+using BTCPayApp.Core.Services;
 using BTCPayApp.Core.Wallet;
 using Laraue.EfCoreTriggers.SqlLite.Extensions;
 using Microsoft.AspNetCore.Authorization;
@@ -12,7 +13,6 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Serilog;
 
 namespace BTCPayApp.Core.Extensions;
 
@@ -27,11 +27,16 @@ public static class StartupExtensions
             options.UseSqlLiteTriggers();
         });
 
+        // Configure logging
+        LoggingConfig.ConfigureLogging(serviceCollection);
+
+        serviceCollection.AddHostedService<AppDatabaseMigrator>();
+        serviceCollection.AddSingleton<ConfigProvider, DatabaseConfigProvider>();
         serviceCollection.AddMemoryCache();
         serviceCollection.AddHttpClient();
-        serviceCollection.AddHostedService<AppDatabaseMigrator>();
         serviceCollection.AddSingleton<BTCPayConnectionManager>();
         serviceCollection.AddSingleton<SyncService>();
+        serviceCollection.AddSingleton<LoggingService>();
         serviceCollection.AddSingleton<LightningNodeManager>();
         serviceCollection.AddSingleton<OnChainWalletManager>();
         serviceCollection.AddSingleton<BTCPayAppServerClient>();
@@ -43,18 +48,9 @@ public static class StartupExtensions
         serviceCollection.AddSingleton<AuthenticationStateProvider, AuthStateProvider>(provider => provider.GetRequiredService<AuthStateProvider>());
         serviceCollection.AddSingleton<IHostedService>(provider => provider.GetRequiredService<AuthStateProvider>());
         serviceCollection.AddSingleton(sp => (IAccountManager)sp.GetRequiredService<AuthenticationStateProvider>());
-        serviceCollection.AddSingleton<ConfigProvider, DatabaseConfigProvider>();
-        serviceCollection.AddLDK();
         serviceCollection.AddSingleton<IAuthorizationHandler, AuthorizationHandler>();
         serviceCollection.AddAuthorizationCore(options => options.AddPolicies());
-
-        // Configure logging
-        serviceCollection.AddLogging();
-        var serviceProvider = serviceCollection.BuildServiceProvider();
-        var dirProvider = serviceProvider.GetRequiredService<IDataDirectoryProvider>();
-        var logHelper = new LogHelper(dirProvider);
-        var logFilePath = logHelper.GetLogPath().GetAwaiter().GetResult();
-        LoggingConfig.ConfigureLogging(logFilePath);
+        serviceCollection.AddLDK();
 
         return serviceCollection;
     }

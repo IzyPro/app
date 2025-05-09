@@ -1,21 +1,42 @@
-﻿using Serilog;
+﻿using BTCPayApp.Core.Contracts;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Serilog;
+using Serilog.Events;
 
-namespace BTCPayApp.Core.Data
+namespace BTCPayApp.Core.Data;
+
+public static class LoggingConfig
 {
-    public static class LoggingConfig
+    private const string OutputTemplate = "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} ({SourceContext}){NewLine}{Exception}";
+
+    public static void ConfigureLogging(IServiceCollection serviceCollection)
     {
-        public static void ConfigureLogging(string logFilePath = "logs/log-.txt")
+        var serviceProvider = serviceCollection.BuildServiceProvider();
+        var dirProvider = serviceProvider.GetRequiredService<IDataDirectoryProvider>();
+        var appDir = dirProvider.GetAppDataDirectory().ConfigureAwait(false).GetAwaiter().GetResult();
+        var dbPath = $"{appDir}/logs.db";
+        var isDevEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+        var minLogLevel = isDevEnv ? LogEventLevel.Verbose : LogEventLevel.Information;
+
+        serviceCollection.AddSerilog();
+        serviceCollection.AddDbContextFactory<LogDbContext>((_, options) =>
         {
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Error() // Set the minimum logging level
-                .WriteTo.Console()    // Write to the console (optional)
-                .WriteTo.File(
-                    logFilePath,         // Path to the log files
-                    rollingInterval: RollingInterval.Day, // Creates a new log file daily
-                    retainedFileCountLimit: 7,           // Retain logs for 7 days
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level}] {Message}{NewLine}{Exception}" // Format
-                )
-                .CreateLogger();
-        }
+            options.UseSqlite($"Data Source={dbPath}");
+        });
+
+        /*
+        "LDK": "Trace",
+        "LDK.lightning::ln::peer_handler": "Debug",
+        "LDK.lightning::routing::gossip": "Information",
+        "LDK.BTCPayApp.Core.LDK.LDKPeerHandler": "Information",
+        "LDK.lightning_background_processor": "Information"*/
+
+        Log.Logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.SQLite(dbPath)
+            .WriteTo.Console(outputTemplate: OutputTemplate, restrictedToMinimumLevel: minLogLevel)
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .MinimumLevel.Override("System", LogEventLevel.Warning).CreateLogger();
     }
 }
